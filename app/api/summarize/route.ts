@@ -19,83 +19,64 @@ function extractVideoId(url: string): string | null {
   return null
 }
 
-// YouTube InnerTube API — ANDROID client bypasses datacenter IP bot-detection
-// that blocks simple page-scraping approaches (like the youtube-transcript package).
+// Fetch transcript via Supadata.ai — works reliably from Vercel serverless because
+// Supadata proxies the YouTube request from non-datacenter IPs.
 async function fetchYouTubeTranscript(videoId: string): Promise<string> {
-  // 1. Call the InnerTube /player endpoint to get caption track URLs
-  const playerRes = await fetch(
-    'https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8',
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'com.google.android.youtube/17.31.35 (Linux; U; Android 11) gzip',
-      },
-      body: JSON.stringify({
-        videoId,
-        context: {
-          client: {
-            clientName: 'ANDROID',
-            clientVersion: '17.31.35',
-            androidSdkVersion: 30,
-            hl: 'en',
-            gl: 'US',
-          },
-        },
-      }),
+  const apiKey = process.env.SUPADATA_API_KEY
+  if (!apiKey) {
+    throw new Error('SUPADATA_API_KEY is not configured.')
+  }
+
+  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`
+  const endpoint =
+    `https://api.supadata.ai/v1/youtube/transcript` +
+    `?url=${encodeURIComponent(videoUrl)}&text=true`
+
+  const res = await fetch(endpoint, {
+    headers: { 'x-api-key': apiKey },
+  })
+
+  // 202 means Supadata is processing asynchronously (very long videos)
+  if (res.status === 202) {
+    const { jobId } = (await res.json()) as { jobId: string }
+    return pollSupadataJob(jobId, apiKey)
+  }
+
+  if (!res.ok) {
+    if (res.status === 404 || res.status === 400) {
+      throw new Error(
+        'Transcripts are disabled for this video. Try a different talk with captions enabled.'
+      )
     }
-  )
-
-  if (!playerRes.ok) {
-    throw new Error(`YouTube returned HTTP ${playerRes.status}. Try again later.`)
+    throw new Error(`Transcript service returned HTTP ${res.status}. Try again later.`)
   }
 
-  const playerData = await playerRes.json() as {
-    captions?: {
-      playerCaptionsTracklistRenderer?: {
-        captionTracks?: Array<{ languageCode: string; baseUrl: string; name: { simpleText: string } }>
-      }
-    }
-  }
+  const data = (await res.json()) as { content: string; lang: string }
 
-  const captionTracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks
-  if (!captionTracks || captionTracks.length === 0) {
-    throw new Error(
-      'Transcripts are disabled for this video. Try a different talk with captions enabled.'
-    )
-  }
-
-  // Prefer manual English track, then any English, then first available
-  const track =
-    captionTracks.find(
-      (t) => t.languageCode === 'en' && !t.name.simpleText.toLowerCase().includes('auto')
-    ) ??
-    captionTracks.find((t) => t.languageCode.startsWith('en')) ??
-    captionTracks[0]
-
-  // 2. Fetch caption data as JSON3 (strip any existing fmt param first)
-  const baseUrl = track.baseUrl.replace(/&fmt=\w+/, '')
-  const captionRes = await fetch(`${baseUrl}&fmt=json3`)
-  if (!captionRes.ok) {
-    throw new Error('Failed to retrieve caption data from YouTube.')
-  }
-
-  const captionData = await captionRes.json() as {
-    events?: Array<{ segs?: Array<{ utf8: string }> }>
-  }
-
-  const text = captionData.events
-    ?.filter((e) => e.segs)
-    ?.map((e) => e.segs!.map((s) => s.utf8).join(''))
-    ?.join(' ')
-    ?.replace(/\s+/g, ' ')
-    ?.trim()
-
-  if (!text) {
+  if (!data.content) {
     throw new Error('Transcript is empty. The video may not have captions.')
   }
 
-  return text
+  return data.content
+}
+
+// Poll for async Supadata jobs (triggered for very long videos).
+// Polls up to 8 times × 3 s ≈ 24 s — well within Vercel's max function timeout.
+async function pollSupadataJob(jobId: string, apiKey: string): Promise<string> {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 3000))
+
+    const res = await fetch(`https://api.supadata.ai/v1/youtube/transcript/${jobId}`, {
+      headers: { 'x-api-key': apiKey },
+    })
+
+    if (res.ok) {
+      const data = (await res.json()) as { content?: string }
+      if (data.content) return data.content
+    }
+  }
+
+  throw new Error('Transcript generation timed out. The video may be too long — try a shorter one.')
 }
 
 export async function POST(request: NextRequest) {

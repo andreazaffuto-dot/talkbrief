@@ -19,6 +19,85 @@ function extractVideoId(url: string): string | null {
   return null
 }
 
+// YouTube InnerTube API — ANDROID client bypasses datacenter IP bot-detection
+// that blocks simple page-scraping approaches (like the youtube-transcript package).
+async function fetchYouTubeTranscript(videoId: string): Promise<string> {
+  // 1. Call the InnerTube /player endpoint to get caption track URLs
+  const playerRes = await fetch(
+    'https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'com.google.android.youtube/17.31.35 (Linux; U; Android 11) gzip',
+      },
+      body: JSON.stringify({
+        videoId,
+        context: {
+          client: {
+            clientName: 'ANDROID',
+            clientVersion: '17.31.35',
+            androidSdkVersion: 30,
+            hl: 'en',
+            gl: 'US',
+          },
+        },
+      }),
+    }
+  )
+
+  if (!playerRes.ok) {
+    throw new Error(`YouTube returned HTTP ${playerRes.status}. Try again later.`)
+  }
+
+  const playerData = await playerRes.json() as {
+    captions?: {
+      playerCaptionsTracklistRenderer?: {
+        captionTracks?: Array<{ languageCode: string; baseUrl: string; name: { simpleText: string } }>
+      }
+    }
+  }
+
+  const captionTracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks
+  if (!captionTracks || captionTracks.length === 0) {
+    throw new Error(
+      'Transcripts are disabled for this video. Try a different talk with captions enabled.'
+    )
+  }
+
+  // Prefer manual English track, then any English, then first available
+  const track =
+    captionTracks.find(
+      (t) => t.languageCode === 'en' && !t.name.simpleText.toLowerCase().includes('auto')
+    ) ??
+    captionTracks.find((t) => t.languageCode.startsWith('en')) ??
+    captionTracks[0]
+
+  // 2. Fetch caption data as JSON3 (strip any existing fmt param first)
+  const baseUrl = track.baseUrl.replace(/&fmt=\w+/, '')
+  const captionRes = await fetch(`${baseUrl}&fmt=json3`)
+  if (!captionRes.ok) {
+    throw new Error('Failed to retrieve caption data from YouTube.')
+  }
+
+  const captionData = await captionRes.json() as {
+    events?: Array<{ segs?: Array<{ utf8: string }> }>
+  }
+
+  const text = captionData.events
+    ?.filter((e) => e.segs)
+    ?.map((e) => e.segs!.map((s) => s.utf8).join(''))
+    ?.join(' ')
+    ?.replace(/\s+/g, ' ')
+    ?.trim()
+
+  if (!text) {
+    throw new Error('Transcript is empty. The video may not have captions.')
+  }
+
+  return text
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -36,34 +115,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Dynamically import to handle ESM in Node.js API routes
-    const { YoutubeTranscript } = await import('youtube-transcript')
-
     let rawTranscript: string
     try {
-      const items = await YoutubeTranscript.fetchTranscript(videoId)
-      if (!items || items.length === 0) {
-        return NextResponse.json(
-          { error: 'No transcript found. Make sure the video has captions enabled.' },
-          { status: 400 }
-        )
-      }
-      rawTranscript = items.map((i) => i.text).join(' ')
+      rawTranscript = await fetchYouTubeTranscript(videoId)
     } catch (err) {
-      const msg = err instanceof Error ? err.message.toLowerCase() : ''
-      if (msg.includes('disabled') || msg.includes('not available')) {
-        return NextResponse.json(
-          {
-            error:
-              'Transcripts are disabled for this video. Try a different talk with captions enabled.',
-          },
-          { status: 400 }
-        )
-      }
-      return NextResponse.json(
-        { error: `Could not fetch transcript: ${err instanceof Error ? err.message : 'Unknown error'}` },
-        { status: 400 }
-      )
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      return NextResponse.json({ error: msg }, { status: 400 })
     }
 
     // Keep up to 50 000 characters (covers most full-length talks)

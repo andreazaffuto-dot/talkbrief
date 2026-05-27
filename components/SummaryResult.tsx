@@ -1,0 +1,284 @@
+'use client'
+
+import { useState } from 'react'
+
+interface SummaryData {
+  videoId: string
+  summary: string
+  keyPoints: string[]
+  quotes: string[]
+}
+
+interface SummaryResultProps {
+  data: SummaryData
+  onReset: () => void
+}
+
+function SectionHeader({ title }: { title: string }) {
+  return (
+    <div className="mb-4">
+      <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-2">
+        {title}
+      </h2>
+      <div className="w-5 h-0.5 bg-accent rounded-full" />
+    </div>
+  )
+}
+
+export default function SummaryResult({ data, onReset }: SummaryResultProps) {
+  const [exporting, setExporting] = useState(false)
+  const [imgSrc, setImgSrc] = useState(
+    `https://img.youtube.com/vi/${data.videoId}/maxresdefault.jpg`
+  )
+  const [imgHidden, setImgHidden] = useState(false)
+
+  const handleImgError = () => {
+    if (imgSrc.includes('maxresdefault')) {
+      setImgSrc(`https://img.youtube.com/vi/${data.videoId}/hqdefault.jpg`)
+    } else {
+      setImgHidden(true)
+    }
+  }
+
+  const exportPDF = async () => {
+    setExporting(true)
+    try {
+      const { jsPDF } = await import('jspdf')
+
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const pageW = pdf.internal.pageSize.getWidth()
+      const pageH = pdf.internal.pageSize.getHeight()
+      const margin = 20
+      const cw = pageW - margin * 2
+      let y = 0
+
+      const guard = (needed: number) => {
+        if (y + needed > pageH - 22) {
+          pdf.addPage()
+          y = margin
+        }
+      }
+
+      // ─── HEADER ───────────────────────────────────────────────
+      pdf.setFillColor(226, 75, 74)
+      pdf.rect(0, 0, pageW, 32, 'F')
+
+      pdf.setTextColor(255, 255, 255)
+      pdf.setFontSize(20)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('TalkBrief', margin, 17)
+
+      pdf.setFontSize(8)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text('AI-Powered Talk Summary', margin, 25)
+
+      const dateStr = new Date().toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      })
+      pdf.text(dateStr, pageW - margin, 25, { align: 'right' })
+
+      y = 47
+
+      // ─── SUMMARY ──────────────────────────────────────────────
+      pdf.setTextColor(20, 20, 20)
+      pdf.setFontSize(13)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('Summary', margin, y)
+      y += 2
+
+      pdf.setFillColor(226, 75, 74)
+      pdf.rect(margin, y, 20, 0.7, 'F')
+      y += 9
+
+      pdf.setFontSize(9.5)
+      pdf.setFont('helvetica', 'normal')
+      pdf.setTextColor(55, 55, 55)
+      const summaryLines = pdf.splitTextToSize(data.summary, cw)
+      guard(summaryLines.length * 5.5 + 16)
+      pdf.text(summaryLines, margin, y)
+      y += summaryLines.length * 5.5 + 16
+
+      // ─── KEY POINTS ───────────────────────────────────────────
+      guard(28)
+      pdf.setTextColor(20, 20, 20)
+      pdf.setFontSize(13)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('Key Points', margin, y)
+      y += 2
+
+      pdf.setFillColor(226, 75, 74)
+      pdf.rect(margin, y, 20, 0.7, 'F')
+      y += 10
+
+      data.keyPoints.forEach((point, i) => {
+        const lines = pdf.splitTextToSize(`${i + 1}.  ${point}`, cw - 6)
+        guard(lines.length * 5.5 + 5)
+        pdf.setFontSize(9.5)
+        pdf.setFont('helvetica', 'normal')
+        pdf.setTextColor(55, 55, 55)
+        pdf.text(lines, margin + 2, y)
+        y += lines.length * 5.5 + 4
+      })
+
+      y += 12
+
+      // ─── QUOTES ───────────────────────────────────────────────
+      guard(28)
+      pdf.setTextColor(20, 20, 20)
+      pdf.setFontSize(13)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('Notable Quotes', margin, y)
+      y += 2
+
+      pdf.setFillColor(226, 75, 74)
+      pdf.rect(margin, y, 20, 0.7, 'F')
+      y += 10
+
+      data.quotes.forEach((quote) => {
+        const lines = pdf.splitTextToSize(`\u201C${quote}\u201D`, cw - 12)
+        const blockH = lines.length * 5.5 + 10
+        guard(blockH + 8)
+
+        pdf.setFillColor(249, 249, 249)
+        pdf.rect(margin, y - 2, cw, blockH, 'F')
+
+        pdf.setFillColor(226, 75, 74)
+        pdf.rect(margin, y - 2, 2.2, blockH, 'F')
+
+        pdf.setFontSize(9.5)
+        pdf.setFont('helvetica', 'italic')
+        pdf.setTextColor(65, 65, 65)
+        pdf.text(lines, margin + 8, y + 4)
+
+        y += blockH + 8
+      })
+
+      // ─── FOOTER (every page) ──────────────────────────────────
+      const totalPages = pdf.getNumberOfPages()
+      for (let p = 1; p <= totalPages; p++) {
+        pdf.setPage(p)
+        pdf.setDrawColor(220, 220, 220)
+        pdf.setLineWidth(0.3)
+        pdf.line(margin, pageH - 14, pageW - margin, pageH - 14)
+        pdf.setFontSize(7.5)
+        pdf.setFont('helvetica', 'normal')
+        pdf.setTextColor(160, 160, 160)
+        pdf.text(
+          `Generated by TalkBrief \u2022 youtube.com/watch?v=${data.videoId}`,
+          margin,
+          pageH - 8
+        )
+        pdf.text(`${p} / ${totalPages}`, pageW - margin, pageH - 8, { align: 'right' })
+      }
+
+      pdf.save('talkbrief-summary.pdf')
+    } catch (err) {
+      console.error('PDF export error:', err)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  return (
+    <div className="mt-8 space-y-3">
+
+      {/* Thumbnail */}
+      {!imgHidden && (
+        <a
+          href={`https://youtube.com/watch?v=${data.videoId}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block relative w-full aspect-video rounded-2xl overflow-hidden bg-gray-100 group"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={imgSrc}
+            alt="Video thumbnail"
+            className="w-full h-full object-cover"
+            onError={handleImgError}
+          />
+          <div className="absolute inset-0 bg-black/20 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+            <div className="w-12 h-12 bg-white/90 rounded-full flex items-center justify-center group-hover:scale-105 transition-transform shadow-lg">
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                <path d="M6 4L14 9L6 14V4Z" fill="#E24B4A" />
+              </svg>
+            </div>
+          </div>
+        </a>
+      )}
+
+      {/* Summary */}
+      <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
+        <SectionHeader title="Summary" />
+        <p className="text-sm text-gray-600 leading-relaxed">{data.summary}</p>
+      </div>
+
+      {/* Key Points */}
+      <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
+        <SectionHeader title="Key Points" />
+        <ol className="space-y-3">
+          {data.keyPoints.map((point, i) => (
+            <li key={i} className="flex gap-3">
+              <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-accent/10 text-accent text-[10px] font-bold flex items-center justify-center">
+                {i + 1}
+              </span>
+              <span className="text-sm text-gray-700 leading-relaxed">{point}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      {/* Quotes */}
+      <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
+        <SectionHeader title="Notable Quotes" />
+        <div className="space-y-4">
+          {data.quotes.map((quote, i) => (
+            <blockquote key={i} className="pl-4 border-l-2 border-accent/50">
+              <p className="text-sm text-gray-600 italic leading-relaxed">
+                &ldquo;{quote}&rdquo;
+              </p>
+            </blockquote>
+          ))}
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-2.5 pt-1">
+        <button
+          onClick={exportPDF}
+          disabled={exporting}
+          className="flex-1 flex items-center justify-center gap-2 py-3 bg-accent text-white text-sm font-semibold rounded-xl hover:bg-[#D03B3A] active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed transition-all shadow-sm"
+        >
+          {exporting ? (
+            <>
+              <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              Generating PDF…
+            </>
+          ) : (
+            <>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path
+                  d="M7 1v8M4 6.5L7 9.5L10 6.5M2 13h10"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              Export PDF
+            </>
+          )}
+        </button>
+
+        <button
+          onClick={onReset}
+          className="px-5 py-3 bg-white border border-gray-200 text-gray-600 text-sm font-medium rounded-xl hover:bg-gray-50 active:scale-[0.98] transition-all"
+        >
+          New summary
+        </button>
+      </div>
+    </div>
+  )
+}

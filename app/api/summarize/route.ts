@@ -80,6 +80,15 @@ async function pollSupadataJob(jobId: string, apiKey: string): Promise<string> {
 }
 
 export async function POST(request: NextRequest) {
+  // Debug: log which API keys are present so Vercel Function Logs show the truth.
+  // Values are never logged — only whether each key is set.
+  console.log('[env-check]', {
+    ANTHROPIC_API_KEY: !!process.env.ANTHROPIC_API_KEY,
+    SUPADATA_API_KEY: !!process.env.SUPADATA_API_KEY,
+    // Surface any key whose name contains "SUPADATA" in case of a typo in the dashboard
+    supadataLike: Object.keys(process.env).filter((k) => k.includes('SUPADATA')),
+  })
+
   try {
     const body = await request.json()
     const { url } = body

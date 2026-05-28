@@ -24,7 +24,7 @@ function extractVideoId(url: string): string | null {
 async function fetchYouTubeTranscript(videoId: string): Promise<string> {
   const apiKey = process.env.SUPADATA_API_KEY
   if (!apiKey) {
-    throw new Error('SUPADATA_API_KEY is not configured.')
+    console.warn('[fetchYouTubeTranscript] SUPADATA_API_KEY is not set — attempting request without auth')
   }
 
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`
@@ -80,14 +80,8 @@ async function pollSupadataJob(jobId: string, apiKey: string): Promise<string> {
 }
 
 export async function POST(request: NextRequest) {
-  // Debug: log which API keys are present so Vercel Function Logs show the truth.
-  // Values are never logged — only whether each key is set.
-  console.log('[env-check]', {
-    ANTHROPIC_API_KEY: !!process.env.ANTHROPIC_API_KEY,
-    SUPADATA_API_KEY: !!process.env.SUPADATA_API_KEY,
-    // Surface any key whose name contains "SUPADATA" in case of a typo in the dashboard
-    supadataLike: Object.keys(process.env).filter((k) => k.includes('SUPADATA')),
-  })
+  // Debug: dump every env var key visible to this function (values never logged).
+  console.log('[env-keys]', Object.keys(process.env).sort())
 
   try {
     const body = await request.json()

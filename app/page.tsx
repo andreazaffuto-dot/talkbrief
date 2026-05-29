@@ -5,7 +5,7 @@ import URLInput from '@/components/URLInput'
 import SummaryResult from '@/components/SummaryResult'
 import UsageBadge from '@/components/UsageBadge'
 import ProBanner from '@/components/ProBanner'
-import { getUsage, incrementUsage, FREE_TIER_LIMIT } from '@/lib/usage'
+import { getUsage, incrementUsage, FREE_TIER_LIMIT, isPro } from '@/lib/usage'
 
 interface SummaryData {
   videoId: string
@@ -22,14 +22,16 @@ export default function Home() {
   const [errorMsg, setErrorMsg] = useState('')
   const [showProBanner, setShowProBanner] = useState(false)
   const [usageCount, setUsageCount] = useState(0)
+  const [isProUser, setIsProUser] = useState(false)
 
   // Read from localStorage only on the client
   useEffect(() => {
     setUsageCount(getUsage().count)
+    setIsProUser(isPro())
   }, [])
 
   const remaining = FREE_TIER_LIMIT - usageCount
-  const isLimitReached = usageCount >= FREE_TIER_LIMIT
+  const isLimitReached = !isProUser && usageCount >= FREE_TIER_LIMIT
 
   const handleSubmit = async (url: string) => {
     if (isLimitReached) {
@@ -100,8 +102,15 @@ export default function Home() {
           </p>
         </header>
 
-        {/* ── Usage ── */}
-        <UsageBadge remaining={remaining} total={FREE_TIER_LIMIT} />
+        {/* ── Usage / Pro badge ── */}
+        {isProUser ? (
+          <div className="flex items-center justify-center gap-1.5 mb-6 px-4 py-2.5 rounded-xl border bg-white border-gray-100 text-xs text-gray-500">
+            <div className="w-1.5 h-1.5 rounded-full bg-[#E24B4A]" />
+            <span>Pro plan — unlimited summaries</span>
+          </div>
+        ) : (
+          <UsageBadge remaining={remaining} total={FREE_TIER_LIMIT} />
+        )}
 
         {/* ── Input (hidden while showing results) ── */}
         {appState !== 'success' && (
@@ -142,8 +151,8 @@ export default function Home() {
         {/* ── Pro Banner ── */}
         {showProBanner && <ProBanner onDismiss={() => setShowProBanner(false)} />}
 
-        {/* ── Limit reached notice (when banner is dismissed) ── */}
-        {isLimitReached && appState !== 'success' && !showProBanner && (
+        {/* ── Limit reached notice (when banner is dismissed, free users only) ── */}
+        {!isProUser && isLimitReached && appState !== 'success' && !showProBanner && (
           <div className="mt-5 p-5 bg-amber-50 border border-amber-100 rounded-xl text-center">
             <p className="text-sm font-medium text-amber-700 mb-0.5">Monthly limit reached</p>
             <p className="text-xs text-amber-600 mb-3">

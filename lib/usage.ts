@@ -1,5 +1,32 @@
 const STORAGE_KEY = 'talkbrief_usage'
+const PRO_KEY = 'talkbrief_pro'
 export const FREE_TIER_LIMIT = 3
+
+// ── Pro status ────────────────────────────────────────────────────────────────
+
+interface ProData {
+  customerId: string
+  subscriptionId: string
+  activatedAt: string
+}
+
+export function isPro(): boolean {
+  if (typeof window === 'undefined') return false
+  return !!localStorage.getItem(PRO_KEY)
+}
+
+export function setPro(customerId: string, subscriptionId: string): void {
+  if (typeof window === 'undefined') return
+  const data: ProData = { customerId, subscriptionId, activatedAt: new Date().toISOString() }
+  localStorage.setItem(PRO_KEY, JSON.stringify(data))
+}
+
+export function clearPro(): void {
+  if (typeof window === 'undefined') return
+  localStorage.removeItem(PRO_KEY)
+}
+
+// ── Free-tier usage ───────────────────────────────────────────────────────────
 
 interface UsageData {
   count: number

@@ -24,10 +24,12 @@ export default function Home() {
   const [usageCount, setUsageCount] = useState(0)
   const [isProUser, setIsProUser] = useState(false)
 
-  // Read from localStorage only on the client
+  // Read from localStorage only on the client.
+  // ?pro=true in the URL also grants unlimited access (for testing).
   useEffect(() => {
     setUsageCount(getUsage().count)
-    setIsProUser(isPro())
+    const proParam = new URLSearchParams(window.location.search).get('pro') === 'true'
+    setIsProUser(isPro() || proParam)
   }, [])
 
   const remaining = FREE_TIER_LIMIT - usageCount

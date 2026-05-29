@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
-
 export async function POST(request: NextRequest) {
   if (!process.env.STRIPE_SECRET_KEY) {
     return NextResponse.json({ error: 'Stripe is not configured.' }, { status: 500 })
@@ -10,6 +8,8 @@ export async function POST(request: NextRequest) {
   if (!process.env.STRIPE_PRICE_ID) {
     return NextResponse.json({ error: 'Stripe price is not configured.' }, { status: 500 })
   }
+
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 
   try {
     // Use the request origin so the redirect works on any domain (local + Vercel preview + prod)

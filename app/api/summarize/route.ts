@@ -118,11 +118,12 @@ export async function POST(request: NextRequest) {
 Analyze the transcript and respond with ONLY a raw JSON object — no markdown, no code fences, no commentary. Use exactly this shape:
 {"summary":"...","keyPoints":["...","...","...","...","..."],"quotes":["...","...","..."]}
 
+Always write your entire response in English, even if the transcript is in another language. If a quote was originally in another language, provide the English translation.
+
 Rules:
-- Always write the summary, key points, and quotes in English, even if the transcript is in another language.
 - summary: 2-3 engaging sentences covering the main thesis and why it matters.
 - keyPoints: Exactly 4-5 specific, actionable insights. Be concrete, not generic.
-- quotes: Exactly 2-3 verbatim quotes from the transcript. Choose memorable, impactful lines. If the transcript is not in English, translate the quotes to English.`,
+- quotes: Exactly 2-3 quotes from the transcript. Choose memorable, impactful lines.`,
       messages: [
         {
           role: 'user',

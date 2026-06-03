@@ -19,33 +19,67 @@ function extractVideoId(url: string): string | null {
   return null
 }
 
-// TEMPORARY: hardcoded transcript to verify the API route and Claude summarisation
-// work end-to-end on Vercel before re-adding real transcript fetching.
+// Fetch transcript via Supadata.ai — works reliably from Vercel serverless because
+// Supadata proxies the YouTube request from non-datacenter IPs.
 async function fetchYouTubeTranscript(videoId: string): Promise<string> {
-  console.log('[fetchYouTubeTranscript] returning hardcoded transcript for videoId:', videoId)
-  return `Good morning. How are you? It's been great, hasn't it? I've been blown away by the
-    whole thing. In fact, I'm leaving. There have been three themes running through the
-    conference which are relevant to what I want to talk about. One is the extraordinary
-    evidence of human creativity in all of the presentations that we've had and in all of
-    the people here. Just the variety of it and the range of it. The second is that it's
-    put us in a place where we have no idea what's going to happen, in terms of the future.
-    No idea how this may play out. I have an interest in education. Actually, what I find
-    is, everybody has an interest in education. Don't you? I find this very interesting.
-    If you're at a dinner party, and you say you work in education -- actually, you're
-    not often at dinner parties, frankly, if you work in education. But if you are, and
-    someone asks what you do, and you say you work in education, you can see the blood run
-    from their face. They're like, "Oh my God, why me? My one night out all week." But if
-    you ask about their education, they pin you to the wall. Because it's one of those
-    things that goes deep with people, am I right? Like religion, and money, and other
-    things. So I have a big interest in education, and I think we all do. We have a
-    huge vested interest in it, partly because it's education that's meant to take us
-    into this future that we can't grasp.`
+  const apiKey = process.env.SUPADATA_API_KEY
+  if (!apiKey) {
+    throw new Error('SUPADATA_API_KEY is not configured.')
+  }
+
+  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`
+  const endpoint =
+    `https://api.supadata.ai/v1/youtube/transcript` +
+    `?url=${encodeURIComponent(videoUrl)}&text=true`
+
+  const res = await fetch(endpoint, {
+    headers: { 'x-api-key': apiKey },
+  })
+
+  // 202 means Supadata is processing asynchronously (very long videos)
+  if (res.status === 202) {
+    const { jobId } = (await res.json()) as { jobId: string }
+    return pollSupadataJob(jobId, apiKey)
+  }
+
+  if (!res.ok) {
+    if (res.status === 404 || res.status === 400) {
+      throw new Error(
+        'Transcripts are disabled for this video. Try a different talk with captions enabled.'
+      )
+    }
+    throw new Error(`Transcript service returned HTTP ${res.status}. Try again later.`)
+  }
+
+  const data = (await res.json()) as { content: string; lang: string }
+
+  if (!data.content) {
+    throw new Error('Transcript is empty. The video may not have captions.')
+  }
+
+  return data.content
+}
+
+// Poll for async Supadata jobs (triggered for very long videos).
+// Polls up to 8 times × 3 s ≈ 24 s — well within Vercel's max function timeout.
+async function pollSupadataJob(jobId: string, apiKey: string): Promise<string> {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 3000))
+
+    const res = await fetch(`https://api.supadata.ai/v1/youtube/transcript/${jobId}`, {
+      headers: { 'x-api-key': apiKey },
+    })
+
+    if (res.ok) {
+      const data = (await res.json()) as { content?: string }
+      if (data.content) return data.content
+    }
+  }
+
+  throw new Error('Transcript generation timed out. The video may be too long — try a shorter one.')
 }
 
 export async function POST(request: NextRequest) {
-  // Debug: dump every env var key visible to this function (values never logged).
-  console.log('[env-keys]', Object.keys(process.env).sort())
-
   try {
     const body = await request.json()
     const { url } = body

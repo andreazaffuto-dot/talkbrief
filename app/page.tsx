@@ -32,7 +32,7 @@ export default function Home() {
     setIsProUser(isPro() || proParam)
   }, [])
 
-  const remaining = FREE_TIER_LIMIT - usageCount
+  const remaining = Math.max(0, FREE_TIER_LIMIT - usageCount)
   const isLimitReached = !isProUser && usageCount >= FREE_TIER_LIMIT
 
   const handleSubmit = async (url: string) => {

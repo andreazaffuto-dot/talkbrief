@@ -79,6 +79,33 @@ async function pollSupadataJob(jobId: string, apiKey: string): Promise<string> {
   throw new Error('Transcript generation timed out. The video may be too long — try a shorter one.')
 }
 
+// Extract the first complete JSON object from a string that may contain extra text or markdown fences.
+function extractJson(raw: string): { summary: string; keyPoints: string[]; quotes: string[] } {
+  const trimmed = raw.trim()
+
+  // Try direct parse first (ideal case — Claude returned pure JSON)
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    // fall through
+  }
+
+  // Strip markdown code fences (```json ... ``` or ``` ... ```)
+  const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (fenceMatch) {
+    return JSON.parse(fenceMatch[1].trim())
+  }
+
+  // Last resort: grab the outermost {...} block
+  const start = trimmed.indexOf('{')
+  const end = trimmed.lastIndexOf('}')
+  if (start !== -1 && end !== -1 && end > start) {
+    return JSON.parse(trimmed.slice(start, end + 1))
+  }
+
+  throw new Error('No JSON object found in response')
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -139,8 +166,10 @@ Rules:
 
     let result: { summary: string; keyPoints: string[]; quotes: string[] }
     try {
-      result = JSON.parse(textBlock.text)
-    } catch {
+      result = extractJson(textBlock.text)
+    } catch (parseErr) {
+      console.error('[/api/summarize] JSON parse failed. Raw Claude response:\n', textBlock.text)
+      console.error('[/api/summarize] Parse error:', parseErr)
       return NextResponse.json({ error: 'Failed to parse the AI response.' }, { status: 500 })
     }
 
